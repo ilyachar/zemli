@@ -1,0 +1,766 @@
+var czoom = 1;
+var datacb = '';
+
+var data_has_house = {
+	'Е28' : 'Дом 215 м<sup>2</sup>'
+};
+
+var data_rubkoff = [ ];
+
+if (Modernizr.touchevents){
+	//alert('touch');
+	$('.touch-alert-bg').show();
+	$('.touch-alert-bg').click(function() {
+		$('.touch-alert-bg').fadeOut(300);
+		$(".tr-layer").hide();
+	});
+} else {
+	$(".tr-layer").hide();
+}
+
+jQuery(function ($) {
+	
+	// формируем фильтр
+	var location_fc = "";
+	var location_values = [];
+	for (i=0; i<window['houses_data'].length; i++) {
+		if (typeof location_values[ window['houses_data'][i]['location'] ] === "undefined" && window['houses_data'][i]['location'] != null && window['houses_data'][i]['location'] != '"объект инфраструктуры' && window['houses_data'][i]['location'] != 'объект  инфраструктуры') {
+			//console.log(window['houses_data'][i]['location']);
+			location_values[ window['houses_data'][i]['location'] ] = 1;
+			location_fc += '<p><input type="checkbox" name="" id="location-' + i + '" class="switch" data-filter="location" data-value="' + window['houses_data'][i]['location'] + '"><label for="location-' + i + '">' + window['houses_data'][i]['location'] + '</label></p>';
+		}
+	}
+	location_fc = '<div class="option-title">Расположение:</div>' + location_fc;
+	$('.filtr_location').html(location_fc);
+	$('.filtr_location').find('p:last').addClass('last');
+	
+	
+    function formatNumber (number, decimals, dec_point, thousands_sep) {
+        // original by: Jonas Raoni Soares Silva (http://www.jsfromhell.com)
+        // improved by: Kevin van Zonneveld (http://kevin.vanzonneveld.net)
+        // bugfix by: Michael White (http://crestidg.com)
+        var i, j, kw, kd, km;
+
+        // input sanitation & defaults
+        if (isNaN(decimals = Math.abs(decimals))) {
+            decimals = 2;
+        }
+        if (dec_point == undefined) {
+            dec_point = ",";
+        }
+        if (thousands_sep == undefined) {
+            thousands_sep = ".";
+        }
+
+        i = parseInt(number = (+number || 0).toFixed(decimals)) + "";
+
+        if ((j = i.length) > 3) {
+            j = j % 3;
+        }
+        else {
+            j = 0;
+        }
+
+        km = (j
+            ? i.substr(0, j) + thousands_sep
+            : "");
+        kw = i.substr(j).replace(/(\d{3})(?=\d)/g, "$1" + thousands_sep);
+        kd = (decimals
+            ? dec_point + Math.abs(number - i).toFixed(decimals).replace(/-/, '0').slice(2)
+            : '');
+
+        return km + kw + kd;
+    }
+
+    // es6 polyfill
+    if (!String.prototype.startsWith) {
+        String.prototype.startsWith = function(search, pos) {
+            return this.substr(!pos || pos < 0 ? 0 : +pos, search.length) === search;
+        };
+    }
+
+    //Popups
+    $(".marks li").click(function () {
+        $(".marks li").removeClass("active");
+        $(".btn-closeall").addClass("show");
+        var $t = $(this);
+        $t.addClass("active");
+        $('.request-form input[name=Number]').val($t.data('id'));
+
+        var aboutPopup = $('.about-object-popup'),
+            aboutPopupContent = aboutPopup.find('> .content');
+        aboutPopupContent.html($t.find('.about-object')[0].outerHTML);
+        aboutPopupContent.attr('class', 'content ' + $t.attr('class').match(/free|sold|reserved/)[0]);
+        aboutPopup.addClass('active');
+
+        return false;
+    });
+
+    $(".genplan").click(function () {
+        $(".marks li").removeClass("active");
+        return false;
+    });
+
+    $(".btn-filter").click(function () {
+        $(".filter").addClass("show");
+        $(".btn-closeall").addClass("show");
+        return false;
+    });
+
+    $(".tr-layer").click(function () {
+        $(this).addClass("hide");
+        return false;
+    });
+
+    $(".btn-closeall").click(function () {
+        $(".filter").removeClass("show");
+        $(".marks li").removeClass("active");
+        $(".request-form").removeClass("active");
+        $(".close-form").removeClass("active");
+        $('.about-object-popup').removeClass('active');
+        $(".black").removeClass("active");
+        $(this).removeClass("show");
+        return false;
+    });
+
+    //Accordion
+    $(".filter-title").click(function () {
+        $(".filter").toggleClass("hide");
+        return false;
+    });
+
+    //Request form
+    $('.p-btn').on('click', showRequestForm);
+    $('.about-object-popup').on('click', '.p-btn', showRequestForm);
+
+    function showRequestForm(e) {
+        e.preventDefault();
+        $(".black").addClass("active");
+        $(".close-form").addClass("active");
+        $(".request-form").addClass("active");
+    }
+
+    $(".close-form").click(function () {
+        $(".black").removeClass("active");
+        $(".request-form").removeClass("active");
+        $('.about-object-popup').removeClass('active');
+        $(".btn-closeall").removeClass('show');
+        $(".marks li").removeClass("active");
+        $(this).removeClass("active");
+        return false;
+    });
+
+    $(".black").click(function () {
+        $(".close-form").removeClass("active");
+        $(".request-form").removeClass("active");
+        $(this).removeClass("active");
+        return false;
+    });
+
+    //Placeholder
+    jQuery('input[placeholder], textarea[placeholder]').placeholder();
+
+    //Mask
+    $(".phone_num").mask("+7 (999) 999-99-99");
+
+    $(".clear-search").on('click', function () {
+        searchBox.val('').trigger('change');
+    });
+
+
+    // load data
+
+    function loadData(sourceData) {
+        var getStatus = function (status) {
+            if (status === 'Забронирован') {
+                return 'reserved';
+            }
+            if (status === 'Продан') {
+                return 'sold';
+            }
+            if (status === 'Снят с продажи' || status === 'Без документов') {
+                return 'out';
+            }
+            if (status === 'Без документов') {
+                return '';
+            }
+            return 'free';
+        };
+
+        return sourceData.map(function(house) {
+        	house.square_value = house.square_value * 1;
+            var element = $('.genplan [data-id="' + house.id + '"]'),
+                status = house.status || 'Свободен',
+                statusName = getStatus(status),
+                action = house.action || 'N',
+                highlight = house.sales_start || null, // 23-07-24
+                rawPrice = house.objectprice || 0,
+                rawSquare = house.square_value || 0,
+                oldPrice = house.price_old || 0,
+                owner = house.owner || 0,
+                location = house.location || '',
+                // begin new price wrap
+                newcost = house.new_cost || 0,
+                // end new price wrap //
+                rubkoff = false;
+                
+            if (data_rubkoff.includes( house.id )) {
+				status = 'Свободен';
+                statusName = getStatus(status);
+			}
+
+            house.isSold = statusName === 'sold';
+            house.isOut = statusName === 'out'; // доб #3
+            house.searchId = normalizeSearchId(house.id);
+            house.price = makeFilterPrice(rawPrice);
+            
+            /*
+            if (house.square_value < 10)
+            	house.square = "До 10 соток";
+            else if (house.square_value < 15)
+            	house.square = "От 10 до 15 соток";
+            else
+            	house.square = "Более 15 соток";
+            */
+            
+            if (house.square_value < 10)
+            	house.square = "До 10 соток";
+            else
+            	house.square = "От 10 соток";
+            
+            if (element) {
+            	
+            	if (data_rubkoff.includes( house.id )) {
+					$('li[data-id = ' + house.id + ']').addClass('rubkoff');
+					rawPrice = 'По запросу у менеджера';
+					house.price = makeFilterPrice(100000000);
+					rubkoff = true;
+					element.find('.title').html( 
+						element.find('.title').text() + 
+						' c домом <img src="/img-maps/rubkoff-logo.svg" style="width: auto; height: 0.75em;" /><br/>' 
+						/*
+						+ 
+						'<div style="font-size: 13px; font-weight: normal; margin-top: 10px;">' +
+							'<div style="display: inline-block; vertical-align: middle; width: 47px; "><img src="/img-maps/rubkoff.svg" style="width: 32px; height: 32px;" /></div>' +
+							'<div style="color: #26615F; font-weight: bold; display: inline-block; vertical-align: middle; width: calc(100% - 47px);">Строительство дома на&nbsp;участке ведет компания Рубкофф</div>' +
+						'</div>'
+						*/
+					);
+				} 
+            	
+                element.data('status', status);
+                element.data('square', house.square || '');
+                element.data('location', location);
+                element.data('price', house.price);
+                element.data('raw-price', rawPrice);
+                // begin new price wrap 
+                element.data('new_cost', house.newcost);
+                // end new price wrap
+
+                element.data('action', action);
+                if (action === 'Y' && statusName !== 'sold') {
+                    element.addClass('is-action');
+                    element.find('.price .amount-old').text(formatPrice(oldPrice)).show();
+                }
+                
+                // 23-07-24
+                if (statusName === 'free' && highlight === 'Да') {
+                    element.addClass('highlight');
+				}
+
+                if (statusName === 'free' && (owner === 'Минакова Надежда Владимировна' || owner === 'Минаков Сергей Александрович' || owner === 'Лепешкина Дина Владимировна')) {
+                    element.addClass('owner_spec');
+                }
+                
+                element.find('.status span').text(status);
+                if (!rubkoff) {
+                	element.find('.price .amount').text(formatPrice(rawPrice, true));
+                    // begin new price wrap 
+                    element.find('.price.price_new .amount_new').text(formatPrice(newcost, true));
+                    // end new price wrap 
+                }
+                else {
+                	element.find('.price .amount').text(rawPrice);
+                    element.find('.status span').html( 
+                		//'<div style="display: inline-block; vertical-align: top; width: 3.5em; ">Статус:</div>' +
+						//'<div style="color: #26615F; font-weight: bold; display: inline-block; vertical-align: top; width: calc(100% - 3.5em);">Строительство дома на&nbsp;участке ведет компания Рубкофф</div>'
+						'Строительство дома на&nbsp;участке ведет компания Рубкофф'
+					);
+                    // begin new price wrap
+                    element.find('.price.price_new .amount_new').text(newcost);
+                    // end new price wrap
+				}
+                
+                element.find('.square span').text(rawSquare + ' соток');
+                element.find('.location span').text(location);
+                element.addClass(statusName);
+                
+                 // begin new price wrap   
+                if (newcost != 0) {
+                    element.find('.price.price_new').addClass('show_new_price');
+                    element.find('.price.price_new .amount_new').text(formatPrice(newcost, true));
+                }
+                // end new price wrap
+                
+                /*new year start*/
+                /*
+                if (status == 'Свободен' && action !== 'Y') {
+                	element.addClass('condensed');
+                	element.find('.price .amount').addClass('st');
+	                var ny_price = (rawPrice - 900000)*0.8 + 900000;
+	                var ny_discount = rawPrice - ny_price;
+	                element.find('.price').css('padding-bottom', 0);
+	                element.find('.price').html(
+	                	element.find('.price').html() + 
+	                	'<div class="ny">' + 
+	                		'<p style="padding-bottom: 2px;">Новогодняя скидка: <span class="red bold">' + formatPrice(ny_discount, true) + '</span> *</p>' + 
+	                		'<p style="padding-bottom: 0px;"><span style="color: #000; font-size: 0.8em; font-weight: normal; letter-spacing: -0.05em;">* – условия предоставления скидки уточняйте у&nbsp;менеджера</small></p>' + 
+	                		'<p class="red bold mt">Итоговая стоимость<br/>при&nbsp;покупке до&nbsp;31&nbsp;декабря:</p><p class="big red bold">' + formatPrice(ny_price, true) + '</p>' +
+	                	'</div>'
+	                );
+				}
+				*/
+                /*new year end*/
+
+                house.element = element;
+            }
+
+            return house;
+        });
+    }
+
+    function makeFilterPrice(rawPrice) {
+        if (rawPrice > 6000000) {
+            return 'fl3';
+        }
+        if (rawPrice > 4000000) {
+            return 'fl2';
+        }
+        if (rawPrice >= 3400000) {
+            return 'fl1';
+        }
+        return '';
+    }
+
+    function formatPrice(price, withCurrency) {
+        if (!price) {
+            return '';
+        }
+        var affix = withCurrency ? ' руб.' : '';
+        return formatNumber(price, 0, ',', ' ') + affix;
+    }
+
+    function normalizeSearchId(id) {
+        return id.trim().toLowerCase().replace(/[абв]/g, function(m) {
+            return {
+                'а': 'a',
+                'б': 'b',
+                'в': 'v',
+            }[m];
+        });
+    }
+
+    function isSearchMatch(subject, search) {
+        return subject == search;
+    }
+
+    if (window['houses_data']) {
+        window['houses_data'] = loadData(window['houses_data']);
+    }
+
+    // filter
+    
+    // переделываем тип участка
+    $('.filter .show p').remove();
+    location_types = [];
+    for (il=0; il<window['houses_data'].length; il++) {
+    	loc = window['houses_data'][il].location;
+		if (typeof location_types[loc] === 'undefined' && loc != undefined) {
+			location_types[loc] = loc;
+			ind = Object.keys(location_types).length;
+			$('.filter .show').append('<p><input type="checkbox" name="" id="location-' + ind + '" class="switch" data-filter="location" data-value="' + loc + '"><label for="location-' + ind + '">' + loc + '</label></p>');
+		}
+	}
+	$('.filter .show p:last-child').addClass('last');
+
+    var filterContainer = $('.filter'),
+        searchBox = $('#search'),
+        searchForm = $('.search-form');
+
+    function getFilter() {
+        var rules = {};
+        filterContainer.find('[type=checkbox]:checked').each(function() {
+            var chk = $(this),
+                filter = chk.data('filter'),
+                value = chk.data('value');
+            if (rules.hasOwnProperty(filter)) {
+                rules[filter].push(value);
+            } else {
+                rules[filter] = [value];
+            }
+        });
+        
+        return {
+            rules: rules,
+            isEmpty: Object.keys(rules).length === 0,
+            search: normalizeSearchId(searchBox.val())
+        };
+    }
+
+    function isHouseMatchesFilter(house, filter) {
+        if (filter.search !== '') {
+            // поиск имеет приоритет над фильтром
+            return isSearchMatch(house.searchId, filter.search);
+        }
+
+        if (filter.isEmpty) {
+            return true;
+        }
+
+        if (house.isSold) {
+            return false;
+        }
+        
+        if (house.isOut) { // доб #3
+            return false;
+        }
+
+        for (var rule in filter.rules) {
+            if (!filter.rules.hasOwnProperty(rule)) {
+                continue;
+            }
+            if (filter.rules[rule].indexOf(house[rule]) === -1) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function applyFilter(filter, search) {
+        var matchedCount = 0;
+        window['houses_data'].forEach(function(house) {
+            if (!house.hasOwnProperty('element')) {
+            	return;
+            }
+
+            var isMatch = isHouseMatchesFilter(house, filter);
+            if (isMatch) {
+                matchedCount++;
+            } else {
+                house.element.removeClass('active');
+            }
+            house.element.toggle(isMatch);
+        });
+
+        if (filter.search !== '') {
+            searchForm.toggleClass('success', matchedCount > 0)
+                .toggleClass('error', matchedCount === 0);
+        } else {
+            searchForm.removeClass('success error');
+        }
+    }
+
+    function doFilter() {
+        var filter = getFilter();
+        //console.log(filter);
+        applyFilter(filter);
+    }
+
+    filterContainer.on('click', '[type=reset]', function(e) {
+        e.preventDefault();
+        filterContainer.find('[type=checkbox]').prop('checked', false);
+        doFilter();
+    });
+
+    filterContainer.on('click', '[type=checkbox]', doFilter);
+    searchBox.on('change keyup paste', doFilter);
+
+    // form
+
+    $('.personal-data .switch').on('change', function() {
+        var form = $(this).closest('form');
+        form.find('[type=submit]').prop('disabled', !this.checked);
+    });
+
+    // установка реферера
+    $(window).on('message', function(e) {
+        if ('referer' in e.originalEvent.data) {
+            $('.ajax-form input[name=url]').val(e.originalEvent.data.referer);
+        }
+    });
+
+    jQuery.validator.addMethod("customemail",
+        function(value, element) {
+            return /^\w+([-+.']\w+)*@\w+([-.]\w+)*\.\w+([-.]\w+)*$/.test(value);
+     });
+
+    $(".ajax-form").validate({
+        rules: {
+            Phone: {
+                required: true,
+                minlength: 18
+            },
+            Name: {
+                required: true,
+                minlength: 2
+            },
+            Email: {
+                required: true,
+                customemail: true
+            },
+        },
+        messages: {
+            Phone: '',
+            Email: '',
+            Name: '',
+        },
+    });
+
+    $('.ajax-form').on('submit', function(e) {
+        e.preventDefault();
+        var form = $(this),
+            submitBtn = form.find('[type=submit]'),
+            messageBlock = form.find('.message');;
+
+        messageBlock.hide();
+        submitBtn.prop('disabled', true);
+        form.removeClass('send-success send-error').addClass('send-sending');
+
+        if (form.valid() && (form.find('[name=not_empty]').val().length == 0) && (typeof $.cookie('.send_form') === 'undefined')) {
+            $.post(form.attr('action'), form.serialize(), function(result) {
+                var success, message;
+                if ('success' in result) {
+                    success = !!result.success;
+                    message = result.message;
+                } else {
+                    success = false;
+                    messsage = 'Что-то пошло не так, пожалуйста, перезагрузите страницу и попроуйте снова.';
+                }
+
+                form.removeClass('send-sending');
+                form.toggleClass('send-success', success).toggleClass('send-error', !success);
+                submitBtn.prop('disabled', false);
+
+                messageBlock.text(message);
+                messageBlock.show();
+
+                var date = new Date();
+                  var period = 1;
+                  date.setTime(date.getTime() + period * 24 * 60 * 60 * 1000);
+                  $.cookie('.send_form', 'yes', {
+                    expires: date,
+                    path: '/'
+                  }); 
+            });
+        };
+    });
+
+    // init map
+
+    var $container = $('.image-content');
+    var $genplan = $('.image-content .genplan');
+    var cHeight = $container.height();
+    var cWidth = $container.width();
+    var iHeight = $genplan.height();
+    var iWidth = $genplan.width();
+
+    var panner = new Panner($container, iWidth, iHeight);
+    var zoomer = new Zoomer($genplan, panner);
+
+    /*panner.centerImage();*/
+    panner.panTo( 
+    	(iWidth - cWidth) * 0.45,
+        (iHeight - cHeight) * 0.5
+    );
+
+    // zoom in / zoom out buttons
+    $('.plus, .minus').on('click', function(e) {
+        e.preventDefault();
+        if ($(this).is('.plus')) {
+            zoomer.zoom(zoomer.zoomStep * 2);
+        } else {
+            zoomer.zoom(zoomer.zoomStep * -2);
+        }
+    });
+
+    // assign class to container on zoom change
+    $genplan.on('zoomer:changed', function(e, zoom) {
+        if (zoom == zoomer.maxZoom) {
+            $container.addClass('max').removeClass('minimal middle');
+        } else if (zoom >= (zoomer.minZoom + zoomer.maxZoom) / 2) {
+            $container.addClass('middle').removeClass('minimal max');
+        } else {
+            $container.addClass('minimal').removeClass('middle max');
+            panner.centerImage();
+        }
+    });
+    
+    //$('.minus').trigger('click');
+    
+});
+
+function Panner($container, iWidth, iHeight) {
+    var self = this;
+
+    var cWidth = $container.width(),
+        cHeight = $container.height();
+
+    this.getContainerWidth = function() {
+        return cWidth;
+    };
+
+    this.getContainerHeight = function() {
+        return cHeight;
+    };
+
+    this.getPan = function() {
+        return {
+            x: $container.scrollLeft(),
+            y: $container.scrollTop()
+        };
+    };
+
+    this.pan = function(deltaX, deltaY) {
+        var current = self.getPan();
+        self.panTo(
+            current.x + deltaX,
+            current.y + deltaY
+        );
+    };
+
+    this.panTo = function(x, y) {
+        $container.scrollLeft(x);
+        $container.scrollTop(y);
+    };
+
+    this.centerImage = function() {
+        self.panTo(
+            (iWidth - cWidth) * 0.5,
+            (iHeight - cHeight) * 0.5
+        );
+    };
+
+    // mouse panning
+
+    var isPanning = false,
+        previousX,
+        previousY;
+
+    $container.on('mousedown', function(e) {
+        previousX = e.clientX;
+        previousY = e.clientY;
+        isPanning = true;
+    });
+
+    $container.on('touchstart', function(e) {
+        if (e.originalEvent.touches.length !== 1) {
+            return;
+        }
+        previousX = e.originalEvent.touches[0].clientX;
+        previousY = e.originalEvent.touches[0].clientY;
+        isPanning = true;
+    });
+
+    $(document).on('mouseup touchend touchcancel', function() {
+        isPanning = false;
+    });
+
+    $container.on('mouseleave touchend touchcancel', function() {
+        isPanning = false;
+    });
+
+    $container.on('mousemove', function (e) {
+        if (!isPanning) {
+            return;
+        }
+        e.preventDefault();
+        self.pan(previousX - e.clientX, previousY - e.clientY);
+        previousX = e.clientX;
+        previousY = e.clientY;
+    });
+
+    $container.on('touchmove', function (e) {
+        if (!isPanning || e.originalEvent.touches.length !== 1) {
+            return;
+        }
+        e.preventDefault();
+        var clientX = e.originalEvent.touches[0].clientX,
+            clientY = e.originalEvent.touches[0].clientY;
+        self.pan(previousX - clientX, previousY - clientY);
+        previousX = clientX;
+        previousY = clientY;
+    });
+
+    // update container size on resize
+
+    $(window).on('resize', function() {
+        cWidth = $container.width();
+        cHeight = $container.height();
+    });
+}
+
+function Zoomer($genplan, panner) {
+    var self = this;
+
+    var iHeight = $genplan.height();
+    var iWidth = $genplan.width();
+    var currentZoom = 1;
+
+    this.maxZoom = 3;
+    this.minZoom = 1;
+    this.zoomStep = 0.5;
+
+    this.zoom = function(delta, originX, originY) {
+        self.setZoom(currentZoom + delta, originX, originY);
+    };
+
+    this.setZoom = function(zoom, originX, originY) {
+        zoom = adjustZoomValue(zoom);
+        if (zoom == currentZoom) {
+            return;
+        }
+
+        const markerScale = 1.0 / zoom;
+        czoom = parseInt(zoom);
+        $genplan.css('transform', 'scale(' + zoom + ')');
+        $genplan.find('.marker').css('transform', 'scale(' + markerScale + ') translate(-' + 50*zoom + '%, -' + 90*zoom +'%)');
+        $genplan.find('.marks > li').css('transform', 'scale(' + markerScale + ')');
+
+        // sync pan
+
+        originX = originX || panner.getContainerWidth() * .5;
+        originY = originY || panner.getContainerHeight() * .5;
+
+        const pan = panner.getPan();
+        const factor = (zoom * iWidth) / (currentZoom * iWidth);
+
+        panner.panTo(
+            (pan.x + originX) * factor - originX,
+            (pan.y + originY) * factor - originY
+        );
+
+        currentZoom = zoom;
+        $genplan.trigger('zoomer:changed', [currentZoom]);
+    };
+
+    function adjustZoomValue(zoom) {
+        if (zoom > self.maxZoom) {
+            return self.maxZoom;
+        }
+        if (zoom < self.minZoom) {
+            return self.minZoom;
+        }
+        return zoom;
+    }
+
+    // wheel down - zoom out, wheel up - zoom in
+    /*$genplan.on('mousewheel', function(e) {
+        e.preventDefault();
+        if (e.originalEvent.deltaY > 0) {
+            self.zoom(-self.zoomStep, e.clientX, e.clientY);
+        } else {
+            self.zoom(self.zoomStep, e.clientX, e.clientY);
+        }
+    });*/
+}
